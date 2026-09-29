@@ -986,51 +986,72 @@ function setHint() {
 }
 
 /* ================= gps nativo & snap ================= */
-function geoToCanvas(lat, lng, origin) {
-  const metersPerDegreeLat = 111139;
-  const metersPerDegreeLng = 111139 * Math.cos(lat * Math.PI / 180);
-  const dy = (origin.lat - lat) * metersPerDegreeLat;
-  const dx = (lng - origin.lng) * metersPerDegreeLng;
-  const scale = W / S.meters;
-  return { x: dx * scale, y: dy * scale };
-}
+let gpsToastShown = false;
+let geoOriginSet = false; // flag para definir a origem na primeira leitura real
 
 function startGPS() {
   if (!('geolocation' in navigator)) return;
   V.gps.active = true;
+  gpsToastShown = false;
+  geoOriginSet = false; // reseta ao iniciar
+
   V.gps.watchId = navigator.geolocation.watchPosition(
     (pos) => {
       if (!pos || !pos.coords) return;
       const { latitude, longitude, accuracy } = pos.coords;
-      if (accuracy > 25) {
+
+      if (accuracy > 50) {
         V.gps.lowSignal = true;
-        toast('Sinal de localização fraco. Use os QR Codes nos corredores para atualizar sua posição');
+        if (!gpsToastShown) {
+          toast('sinal de gps fraco. podes usar os qr codes para marcar a posição.');
+          gpsToastShown = true;
+        }
         render();
         return;
       }
+
       V.gps.lowSignal = false;
-      const origin = S.geoOrigin || { lat: -23.55052, lng: -46.633308 };
-      const rawPt = geoToCanvas(latitude, longitude, origin);
+      gpsToastShown = false;
+
+      // define a origem dinâmica na primeira coordenada obtida
+      if (!geoOriginSet) {
+        S.geoOrigin = { lat: latitude, lng: longitude };
+        geoOriginSet = true;
+      }
+
+      const rawPt = geoToCanvas(latitude, longitude, S.geoOrigin);
       V.gps.raw = { ...rawPt, accuracy };
 
       ensureGrid();
-      const nearestCell = nearestWalk(rawPt.x, rawPt.y, 30);
+      // aumenta a margem de busca do corredor mais próximo para 60px
+      const nearestCell = nearestWalk(rawPt.x, rawPt.y, 60);
+
       if (nearestCell >= 0) {
         const snapX = (nearestCell % GW) * CELL + CELL / 2;
         const snapY = ((nearestCell / GW) | 0) * CELL + CELL / 2;
         V.gps.snapped = { x: snapX, y: snapY };
-        V.custom = { x: snapX, y: snapY, name: 'Sua posição (GPS)' };
+        V.custom = { x: snapX, y: snapY, name: 'sua posição (gps)' };
+        
+        // reccalcula e atualiza a rota e a interface no mapa
         refreshVisitor();
       } else {
-        V.gps.lowSignal = true;
-        toast('Sinal de localização fraco. Use os QR Codes nos corredores para atualizar sua posição');
+        // caso o utilizador esteja fora de qualquer corredor desenhado
+        V.custom = { x: rawPt.x, y: rawPt.y, name: 'sua posição (gps - fora do corredor)' };
+        refreshVisitor();
       }
     },
     (err) => {
       V.gps.lowSignal = true;
-      toast('Sinal de localização fraco. Use os QR Codes nos corredores para atualizar sua posição');
+      if (!gpsToastShown) {
+        toast('sinal de gps indisponível no momento.');
+        gpsToastShown = true;
+      }
     },
-    { enableHighAccuracy: true, maximumAge: 2000, timeout: 5000 }
+    {
+      enableHighAccuracy: true,
+      maximumAge: 1000, // atualiza com leituras mais recentes
+      timeout: 10000
+    }
   );
 }
 
@@ -1042,6 +1063,8 @@ function stopGPS() {
   V.gps.active = false;
   V.gps.raw = null;
   V.gps.snapped = null;
+  gpsToastShown = false;
+  geoOriginSet = false;
 }
 
 /* ================= visitante ================= */
