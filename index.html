@@ -987,23 +987,24 @@ function setHint() {
 
 /* ================= gps nativo & snap ================= */
 let gpsToastShown = false;
-let geoOriginSet = false; // flag para definir a origem na primeira leitura real
+let geoOriginSet = false;
 
 function startGPS() {
   if (!('geolocation' in navigator)) return;
   V.gps.active = true;
   gpsToastShown = false;
-  geoOriginSet = false; // reseta ao iniciar
+  geoOriginSet = false;
 
   V.gps.watchId = navigator.geolocation.watchPosition(
     (pos) => {
       if (!pos || !pos.coords) return;
       const { latitude, longitude, accuracy } = pos.coords;
 
-      if (accuracy > 50) {
+      // aceita sinais com raio de precisão até 60m
+      if (accuracy > 60) {
         V.gps.lowSignal = true;
         if (!gpsToastShown) {
-          toast('sinal de gps fraco. podes usar os qr codes para marcar a posição.');
+          toast('sinal de gps fraco. podes usar os qr codes para ajustar a posição.');
           gpsToastShown = true;
         }
         render();
@@ -1013,7 +1014,7 @@ function startGPS() {
       V.gps.lowSignal = false;
       gpsToastShown = false;
 
-      // define a origem dinâmica na primeira coordenada obtida
+      // fixa o ponto inicial na primeira leitura recebida
       if (!geoOriginSet) {
         S.geoOrigin = { lat: latitude, lng: longitude };
         geoOriginSet = true;
@@ -1023,33 +1024,33 @@ function startGPS() {
       V.gps.raw = { ...rawPt, accuracy };
 
       ensureGrid();
-      // aumenta a margem de busca do corredor mais próximo para 60px
-      const nearestCell = nearestWalk(rawPt.x, rawPt.y, 60);
+      
+      // converte a margem de busca para cobrir o raio de erro real da leitura (accuracy)
+      const maxSearchPx = Math.max(80, Math.round((accuracy * W) / S.meters));
+      const nearestCell = nearestWalk(rawPt.x, rawPt.y, maxSearchPx);
 
       if (nearestCell >= 0) {
         const snapX = (nearestCell % GW) * CELL + CELL / 2;
         const snapY = ((nearestCell / GW) | 0) * CELL + CELL / 2;
         V.gps.snapped = { x: snapX, y: snapY };
         V.custom = { x: snapX, y: snapY, name: 'sua posição (gps)' };
-        
-        // reccalcula e atualiza a rota e a interface no mapa
-        refreshVisitor();
       } else {
-        // caso o utilizador esteja fora de qualquer corredor desenhado
-        V.custom = { x: rawPt.x, y: rawPt.y, name: 'sua posição (gps - fora do corredor)' };
-        refreshVisitor();
+        // força a atualização da posição no canvas mesmo sem corredor por perto
+        V.custom = { x: clamp(rawPt.x, 0, W), y: clamp(rawPt.y, 0, H), name: 'sua posição (gps - aproximada)' };
       }
+
+      refreshVisitor();
     },
     (err) => {
       V.gps.lowSignal = true;
       if (!gpsToastShown) {
-        toast('sinal de gps indisponível no momento.');
+        toast('sinal de gps indisponível.');
         gpsToastShown = true;
       }
     },
     {
       enableHighAccuracy: true,
-      maximumAge: 1000, // atualiza com leituras mais recentes
+      maximumAge: 0,       // força obter sempre a posição em tempo real sem usar cache
       timeout: 10000
     }
   );
