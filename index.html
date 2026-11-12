@@ -14,7 +14,7 @@
   --bg:#E8ECEF; --panel:#F6F8F9; --ink:#10232B; --ink2:#52676E; --line:#CBD5DA; --on-ink:#F6F8F9;
   --accent:#FFC400; --on-accent:#10232B; --route:#E4007C; --you:#0B5FFF; --ok:#16853F; --bad:#D22B45;
   --stage:#B0BEC5; --paper:#D9E1E5; --corr:#FFFFFF; --grid:#C2CE35;
-  --loja:#2F6FDE; --comida:#E07F00; --banheiro:#00867F; --palco:#8A3FC4; --escada:#5E7784; --elevador:#3B7A57; --entrada:#16853F;
+  --loja:#2F6FDE; --comida:#E07F00; --banheiro:#00867F; --palco:#8A3FC4; --escada:#5E7784; --elevador:#3B7A57; --entrada:#16853F; --sala:#8A6A3B;
   color-scheme:light dark;
 }
 @media (prefers-color-scheme: dark){
@@ -22,14 +22,14 @@
     --bg:#0B1418; --panel:#121D22; --ink:#E6EEF0; --ink2:#93A7AE; --line:#243640; --on-ink:#0B1418;
     --accent:#FFC400; --on-accent:#10232B; --route:#FF3D9A; --you:#5B8DFF; --ok:#3FC57A; --bad:#FF6478;
     --stage:#050B0E; --paper:#0F171B; --corr:#21333C; --grid:#162228;
-    --loja:#6C93F5; --comida:#F0A03A; --banheiro:#2CC4BB; --palco:#B77BEA; --escada:#8DA6B3; --elevador:#58C08C; --entrada:#3FC57A;
+    --loja:#6C93F5; --comida:#F0A03A; --banheiro:#2CC4BB; --palco:#B77BEA; --escada:#8DA6B3; --elevador:#58C08C; --entrada:#3FC57A; --sala:#D2AD72;
   }
 }
 :root[data-theme="dark"]{
   --bg:#0B1418; --panel:#121D22; --ink:#E6EEF0; --ink2:#93A7AE; --line:#243640; --on-ink:#0B1418;
   --accent:#FFC400; --on-accent:#10232B; --route:#FF3D9A; --you:#5B8DFF; --ok:#3FC57A; --bad:#FF6478;
   --stage:#050B0E; --paper:#0F171B; --corr:#21333C; --grid:#162228;
-  --loja:#6C93F5; --comida:#F0A03A; --banheiro:#2CC4BB; --palco:#B77BEA; --escada:#8DA6B3; --elevador:#58C08C; --entrada:#3FC57A;
+  --loja:#6C93F5; --comida:#F0A03A; --banheiro:#2CC4BB; --palco:#B77BEA; --escada:#8DA6B3; --elevador:#58C08C; --entrada:#3FC57A; --sala:#D2AD72;
   color-scheme:dark;
 }
 :root[data-theme="light"]{color-scheme:light}
@@ -186,6 +186,7 @@ ol.steps .ar{width:24px;flex:none;text-align:center;font:700 20px/1 var(--font-h
       <h3 id="selTitle">Selecionado</h3>
       <label class="field"><span>Nome (aparece na busca do visitante)</span><input type="text" id="selName" maxlength="40" autocomplete="off"></label>
       <label class="field"><span>Tipo</span><select id="selType"></select></label>
+      <label class="field" id="qrRow" hidden><span>Link para o QR Code deste ponto</span><input type="text" id="qrLink" readonly></label>
       <div class="row" id="doorRow" style="margin-bottom:10px">
         <button class="btn small" id="doorBtn">Mover porta</button>
         <button class="btn small" id="autoDoorBtn">Porta automática</button>
@@ -198,7 +199,7 @@ ol.steps .ar{width:24px;flex:none;text-align:center;font:700 20px/1 var(--font-h
       <ol class="guide">
         <li>Trace os <b>corredores</b>: arraste no mapa. Eles se encaixam em linha reta e se juntam nas pontas.</li>
         <li>Desenhe lojas, banheiros e estandes. A <b>porta</b> vai sozinha para o corredor mais próximo.</li>
-        <li>Coloque uma <b>Entrada / QR</b> em cada lugar onde haverá um QR Code impresso.</li>
+        <li>Coloque uma <b>Entrada / QR</b> em cada lugar onde haverá um QR Code impresso. <b>Escadas</b> e <b>elevadores</b> também servem de ponto de partida e de destino.</li>
         <li>Abra a aba <b>Visitante</b> e teste uma rota.</li>
       </ol>
     </section>
@@ -242,7 +243,7 @@ ol.steps .ar{width:24px;flex:none;text-align:center;font:700 20px/1 var(--font-h
       </div>
     </section>
     <section class="sec">
-      <label class="field"><span>Você está em (é o QR Code que você escaneou)</span><select id="startSel"></select></label>
+      <label class="field"><span>Você está em (o QR Code que você escaneou ou o ponto que escolher)</span><select id="startSel"></select></label>
       <p class="muted small" id="startNote">Você também pode tocar num corredor do mapa para marcar onde está.</p>
       <p class="muted small" id="gpsNote"></p>
       <button class="btn small" id="gpsBtn">Usar minha localização</button>
@@ -266,7 +267,7 @@ ol.steps .ar{width:24px;flex:none;text-align:center;font:700 20px/1 var(--font-h
 
 /* ================= constantes ================= */
 const W = 1000, H = 640, CELL = 3, GW = Math.floor(W / CELL), GH = Math.floor(H / CELL), N = GW * GH, CS = 2;
-const KEY = 'rota-interna:v1';
+const KEY = 'rota-interna:v2'; // v2: abre o mapa do Senac em vez do mapa salvo da versão anterior
 const GPS_PAUSE_MS = 30000;
 const FONT = '"Barlow Semi Condensed","Barlow",system-ui,sans-serif';
 const EMOJI = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
@@ -276,6 +277,7 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
 const norm = s => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
 const TYPES = {
+  sala:     { label: 'Sala / Laboratório', plural: 'Salas', base: 'Sala', kind: 'area', icon: '🏫' },
   loja:     { label: 'Loja / Estande',  plural: 'Lojas',      base: 'Loja',     kind: 'area',  icon: '🏬' },
   comida:   { label: 'Alimentação',     plural: 'Alimentação', base: 'Alimentação', kind: 'area', icon: '🍴' },
   banheiro: { label: 'Banheiro',        plural: 'Banheiros',  base: 'Banheiro', kind: 'area',  icon: '🚻' },
@@ -288,9 +290,13 @@ const TYPES = {
 const TOOLDEF = [
   { g: 'Mover', items: [['select', '↖', 'Selecionar'], ['mao', '✋', 'Mover o mapa']] },
   { g: '1  Corredores', brush: true, items: [['corredor', '▬', 'Corredor reto'], ['pincel', '🖌️', 'Pincel livre'], ['borracha', '🧽', 'Borracha']] },
-  { g: '2  Lugares', items: ['loja', 'comida', 'banheiro', 'palco'].map(t => [t, TYPES[t].icon, TYPES[t].label]) },
+  { g: '2  Lugares', items: ['sala', 'loja', 'comida', 'banheiro', 'palco'].map(t => [t, TYPES[t].icon, TYPES[t].label]) },
   { g: '3  Pontos', items: ['escada', 'elevador', 'entrada'].map(t => [t, TYPES[t].icon, TYPES[t].label]) }
 ];
+
+// pontos onde o visitante pode estar: QR de entrada, escada ou elevador
+const START_TYPES = ['entrada', 'escada', 'elevador'];
+const isStart = p => !!p && START_TYPES.includes(p.type);
 
 /* ================= estado ================= */
 let S = { strokes: [], places: [], meters: 120 };
@@ -584,33 +590,36 @@ function syncUndo() { $('#undo').disabled = hidx <= 0; $('#redo').disabled = hid
 
 /* ================= mapa de exemplo ================= */
 function loadSample() {
-  const st = pts => ({ op: 'paint', w: 30, pts });
-  S.strokes = [st([[70, 320], [930, 320]]), st([[70, 110], [930, 110]]), st([[70, 530], [930, 530]]), st([[200, 110], [200, 530]]), st([[500, 110], [500, 530]]), st([[800, 110], [800, 530]])];
-  S.places = []; nextId = 1; S.meters = 120;
-  const A = (type, name, x, y, w, h, dx, dy) => S.places.push({ id: nid(), type, kind: 'area', name, x, y, w, h, door: { x: dx, y: dy } });
-  const P = (type, name, x, y) => S.places.push({ id: nid(), type, kind: 'point', name, x, y });
-  A('palco', 'Cinema', 230, 30, 240, 63, 350, 93);
-  A('loja', 'Livraria Página', 530, 30, 240, 63, 650, 93);
-  A('loja', 'Loja Aurora', 60, 128, 123, 80, 183, 168);
-  A('banheiro', 'Banheiro Norte', 60, 215, 123, 87, 183, 258);
-  A('comida', 'Praça de Alimentação', 217, 128, 266, 80, 350, 128);
-  A('loja', 'Farmácia Vida', 217, 215, 266, 87, 350, 302);
-  A('loja', 'Eletro Max', 517, 128, 266, 80, 650, 128);
-  A('loja', 'Moda Norte', 517, 215, 266, 87, 650, 302);
-  A('palco', 'Palco Central', 817, 128, 123, 174, 817, 215);
-  A('loja', 'Óptica Visão', 60, 337, 123, 82, 183, 378);
-  A('banheiro', 'Banheiro Sul', 60, 425, 123, 88, 183, 470);
-  A('comida', 'Sorveteria Gelato', 217, 337, 266, 82, 350, 337);
-  A('loja', 'Games Arena', 217, 425, 266, 88, 350, 513);
-  A('loja', 'Tênis Run', 517, 337, 266, 82, 650, 337);
-  A('loja', 'Casa & Decor', 517, 425, 266, 88, 650, 513);
-  A('loja', 'Academia Fit', 817, 337, 123, 176, 817, 425);
-  A('loja', 'Supermercado Bom Preço', 230, 547, 540, 63, 500, 547);
-  P('entrada', 'Entrada principal', 70, 320);
-  P('entrada', 'QR Praça de Alimentação', 350, 110);
-  P('entrada', 'Entrada Leste', 930, 320);
-  P('elevador', 'Elevador', 350, 320);
-  P('escada', 'Escada rolante', 650, 320);
+  // Planta: SENAC Largo Treze, 3º pavimento (mapa de risco). Coordenadas em pixels da foto, convertidas para o mapa.
+  const X = px => Math.round(px * 0.66 + 20), Y = py => Math.round((py - 850) * 0.66 + 170);
+  const st = pts => ({ op: 'paint', w: 28, pts: pts.map(([x, y]) => [X(x), Y(y)]) });
+  S.strokes = [
+    st([[55, 1068], [1225, 1068]]),   // circulação oeste e leste (passa pelo saguão central)
+    st([[715, 1068], [715, 1200]]),   // acesso ao elevador
+    st([[770, 1068], [770, 925]])     // acesso à escada central
+  ];
+  S.places = []; nextId = 1; S.meters = 70;
+  const P = (type, name, x, y) => S.places.push({ id: nid(), type, kind: 'point', name, x: X(x), y: Y(y) });
+  const A = (type, name, x0, y0, x1, y1, dx, dy) => S.places.push({ id: nid(), type, kind: 'area', name, x: X(x0), y: Y(y0), w: Math.round((x1 - x0) * 0.66), h: Math.round((y1 - y0) * 0.66), door: { x: X(dx), y: Y(dy) } });
+  P('elevador', 'Elevador', 715, 1200);
+  P('escada', 'Escada central', 770, 925);
+  P('escada', 'Escada oeste', 55, 1068);
+  // ala oeste, lado norte
+  A('sala', 'Laboratório de Informática 32', 80, 885, 425, 1040, 400, 1040);
+  A('sala', 'Sala 34', 425, 893, 598, 1040, 560, 1040);
+  A('banheiro', 'Sanitário Feminino', 598, 895, 680, 1040, 640, 1040);
+  // ala oeste, lado sul
+  A('sala', 'Sala 31', 55, 1092, 368, 1235, 330, 1092);
+  A('sala', 'Sala 33', 368, 1092, 668, 1240, 640, 1092);
+  // ala leste, lado norte
+  A('banheiro', 'Sanitário Masculino', 855, 905, 935, 1040, 890, 1040);
+  A('sala', 'Sala 36', 935, 908, 1143, 1040, 1100, 1040);
+  A('sala', 'Sala Fotografia 38', 1143, 910, 1428, 1040, 1175, 1040);
+  // ala leste, lado sul
+  A('sala', 'Laboratório de Informática 35 A', 855, 1097, 1020, 1245, 885, 1097);
+  A('sala', 'Laboratório de Informática Cisco 35 B', 1020, 1100, 1190, 1245, 1045, 1100);
+  A('sala', 'Depósito', 1195, 1100, 1235, 1245, 1215, 1100);
+  A('sala', 'Laboratório de Informática Móvel 37', 1235, 1052, 1448, 1250, 1235, 1075);
   selId = null; rebuildCorr(); commit();
 }
 function blankMap() { S.strokes = []; S.places = []; nextId = 1; selId = null; V.destId = null; V.route = null; V.custom = null; rebuildCorr(); commit(); userMoved = false; fitView(); }
@@ -619,8 +628,17 @@ function blankMap() { S.strokes = []; S.places = []; nextId = 1; selId = null; V
 let dpr = 1, cw = 300, ch = 300, userMoved = false;
 const view = { k: 1, tx: 0, ty: 0 };
 function fitK(b, pad) { b = b || { x: 0, y: 0, w: W, h: H }; return Math.min((cw - pad * 2) / b.w, (ch - pad * 2) / b.h); }
+function contentBounds() {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const add = (x, y, r) => { x0 = Math.min(x0, x - r); y0 = Math.min(y0, y - r); x1 = Math.max(x1, x + r); y1 = Math.max(y1, y + r); };
+  for (const st of S.strokes) if (st.op === 'paint') for (const q of st.pts) add(q[0], q[1], st.w / 2);
+  for (const p of S.places) { if (p.kind === 'area') { add(p.x, p.y, 0); add(p.x + p.w, p.y + p.h, 0); } else add(p.x, p.y, 14); }
+  if (!isFinite(x0)) return null;
+  const w = Math.max(240, x1 - x0), h = Math.max(160, y1 - y0), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  return { x: cx - w / 2, y: cy - h / 2, w, h };
+}
 function fitView(b, pad, maxK) {
-  pad = pad == null ? (cw < 500 ? 12 : 28) : pad; b = b || { x: 0, y: 0, w: W, h: H };
+  pad = pad == null ? (cw < 500 ? 12 : 28) : pad; b = b || contentBounds() || { x: 0, y: 0, w: W, h: H };
   const k = clamp(fitK(b, pad), 0.1, maxK || 8);
   view.k = k; view.tx = cw / 2 - (b.x + b.w / 2) * k; view.ty = ch / 2 - (b.y + b.h / 2) * k;
 }
@@ -932,12 +950,15 @@ function syncSel() {
   const nm = $('#selName'); if (document.activeElement !== nm) nm.value = p.name;
   $('#selType').innerHTML = Object.entries(TYPES).filter(([, t]) => t.kind === p.kind).map(([k, t]) => '<option value="' + k + '"' + (k === p.type ? ' selected' : '') + '>' + t.icon + ' ' + t.label + '</option>').join('');
   $('#doorRow').hidden = p.kind !== 'area';
+  $('#qrRow').hidden = !isStart(p);
+  if (isStart(p)) $('#qrLink').value = location.href.split(/[?#]/)[0] + '?qr=' + p.id;
 }
 function deleteSel() { if (selId == null) return; S.places = S.places.filter(p => p.id !== selId); selId = null; doorPending = null; commit(); setHint(); }
 $('#selName').addEventListener('input', e => { const p = byId(selId); if (p) { p.name = e.target.value; render(); } });
 $('#selName').addEventListener('change', () => commit());
 $('#selType').addEventListener('change', e => { const p = byId(selId); if (p) { p.type = e.target.value; commit(); } });
 $('#delBtn').addEventListener('click', deleteSel);
+$('#qrLink').addEventListener('focus', e => e.target.select());
 $('#doorBtn').addEventListener('click', () => { const p = byId(selId); if (!p) return; doorPending = p.id; setHint(); render(); });
 $('#autoDoorBtn').addEventListener('click', () => { const p = byId(selId); if (!p) return; if (autoDoor(p)) { commit(); toast('Porta colocada no corredor mais próximo.'); } else toast('Não há corredor perto. Trace um corredor encostado nesse lugar.'); });
 
@@ -947,7 +968,7 @@ function scheduleHealth() { clearTimeout(hT); hT = setTimeout(() => { computeHea
 function computeHealth() {
   ensureGrid();
   let any = false; for (let i = 0; i < N; i++) if (walk[i]) { any = true; break; }
-  const ents = S.places.filter(p => p.type === 'entrada');
+  const ents = S.places.filter(isStart);
   const score = new Map();
   for (const e of ents) { const c = nearestWalk(e.x, e.y, 40); if (c >= 0) { const id = comp[c]; score.set(id, (score.get(id) || 0) + 1e6 + compSize[id]); } }
   let main = -1, b = -1;
@@ -966,7 +987,7 @@ function renderHealth() {
   const h = health, li = (cls, sym, html) => '<li class="' + cls + '"><span class="st" aria-hidden="true">' + sym + '</span><span>' + html + '</span></li>';
   const rows = [];
   rows.push(h.hasCorr ? li('ok', '✓', 'Corredores traçados') : li('todo', '·', 'Trace os corredores por onde as pessoas andam'));
-  rows.push(h.entrances > 0 ? li('ok', '✓', h.entrances + (h.entrances > 1 ? ' pontos de entrada / QR' : ' ponto de entrada / QR')) : li('todo', '·', 'Coloque ao menos uma Entrada / QR'));
+  rows.push(h.entrances > 0 ? li('ok', '✓', h.entrances + (h.entrances > 1 ? ' pontos de partida (entrada, escada ou elevador)' : ' ponto de partida (entrada, escada ou elevador)')) : li('todo', '·', 'Coloque ao menos uma Entrada, Escada ou Elevador'));
   rows.push(h.dests > 0 ? li('ok', '✓', h.dests + (h.dests > 1 ? ' destinos no mapa' : ' destino no mapa')) : li('todo', '·', 'Desenhe lojas, banheiros ou estandes'));
   for (const i of h.issues) rows.push(li('warn', '!', '<button data-focus="' + i.id + '">' + esc(i.name) + '</button>: ' + i.msg));
   $('#health').innerHTML = rows.join('');
@@ -1106,7 +1127,7 @@ $('#gpsBtn').addEventListener('click', () => {
 /* ================= visitante ================= */
 function startPoint() {
   if (V.custom) return V.custom;
-  const e = S.places.find(p => p.id === V.startId && p.type === 'entrada');
+  const e = S.places.find(p => p.id === V.startId && isStart(p));
   return e ? { x: e.x, y: e.y, name: e.name } : null;
 }
 function fmtM(px) { const m = px * S.meters / W; if (m < 3) return 'alguns passos'; return (m < 10 ? Math.round(m) : Math.round(m / 5) * 5) + ' m'; }
@@ -1119,7 +1140,7 @@ function refreshField() {
 }
 function enterVisitor() {
   ensureGrid(); computeHealth();
-  if (!S.places.some(p => p.id === V.startId && p.type === 'entrada')) { const e = S.places.find(p => p.type === 'entrada'); V.startId = e ? e.id : null; }
+  if (!S.places.some(p => p.id === V.startId && isStart(p))) { const e = S.places.find(isStart); V.startId = e ? e.id : null; }
   if (V.destId != null && !byId(V.destId)) { V.destId = null; V.route = null; }
   refreshVisitor(); gpsUI();
 }
@@ -1129,10 +1150,10 @@ function refreshVisitor() {
   renderChips(); renderResults(); renderRouteCard(); render();
 }
 function refreshStartSel() {
-  const sel = $('#startSel'), ents = S.places.filter(p => p.type === 'entrada');
-  let html = ents.map(e => '<option value="' + e.id + '">' + esc(e.name) + '</option>').join('');
+  const sel = $('#startSel'), ents = S.places.filter(isStart);
+  let html = ents.map(e => '<option value="' + e.id + '">' + TYPES[e.type].icon + ' ' + esc(e.name) + '</option>').join('');
   if (V.custom) html += '<option value="custom">' + esc(V.custom.name) + '</option>';
-  if (!html) html = '<option value="">Nenhuma Entrada / QR no mapa</option>';
+  if (!html) html = '<option value="">Nenhum ponto de partida no mapa</option>';
   sel.innerHTML = html; sel.value = V.custom ? 'custom' : (V.startId != null ? String(V.startId) : '');
   $('#startNote').hidden = false;
 }
@@ -1372,6 +1393,10 @@ if (window.ResizeObserver) new ResizeObserver(resize).observe(stage); else windo
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
 resize();
 computeHealth(); renderHealth(); syncUndo(); syncSel(); gpsUI();
+{
+  const m = (location.search + location.hash).match(/qr[=-](\d+)/), qp = m && byId(+m[1]);
+  if (isStart(qp)) { V.startId = qp.id; setMode('visit'); toast('Você está em: ' + qp.name); }
+}
 })();
 </script>
 </body>
