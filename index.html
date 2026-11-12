@@ -162,8 +162,8 @@ ol.steps .ar{width:24px;flex:none;text-align:center;font:700 20px/1 var(--font-h
     <div><b>Rota Interna</b><small>Editor de mapas, protótipo</small></div>
   </div>
   <nav class="tabs" role="tablist" aria-label="Modo">
-    <button role="tab" id="tabEdit" aria-selected="true">Editar</button>
-    <button role="tab" id="tabVisit" aria-selected="false">Visitante</button>
+    <button role="tab" id="tabEdit" aria-selected="true" aria-controls="panelEdit" tabindex="0">Editar</button>
+    <button role="tab" id="tabVisit" aria-selected="false" aria-controls="panelVisit" tabindex="-1">Visitante</button>
   </nav>
   <button class="btn" id="timerBtn" title="Cronometra quanto tempo leva para montar um mapa do zero"><span aria-hidden="true">⏱</span> <span id="timerTxt">Cronometrar montagem</span></button>
 </header>
@@ -172,7 +172,7 @@ ol.steps .ar{width:24px;flex:none;text-align:center;font:700 20px/1 var(--font-h
   <aside class="tools" id="tools" aria-label="Ferramentas"></aside>
 
   <section class="stage" id="stage">
-    <canvas id="cv" aria-label="Mapa"></canvas>
+    <canvas id="cv" role="img" aria-label="Mapa interativo do local. Para navegar sem o mapa, use a lista de destinos na aba Visitante."></canvas>
     <div class="hint" id="hint"></div>
     <div class="hud">
       <button id="zin" aria-label="Aproximar">+</button>
@@ -181,7 +181,7 @@ ol.steps .ar{width:24px;flex:none;text-align:center;font:700 20px/1 var(--font-h
     </div>
   </section>
 
-  <aside class="panel" id="panelEdit">
+  <aside class="panel" id="panelEdit" role="tabpanel" aria-labelledby="tabEdit">
     <section class="sec" id="selBox" hidden>
       <h3 id="selTitle">Selecionado</h3>
       <label class="field"><span>Nome (aparece na busca do visitante)</span><input type="text" id="selName" maxlength="40" autocomplete="off"></label>
@@ -232,7 +232,7 @@ ol.steps .ar{width:24px;flex:none;text-align:center;font:700 20px/1 var(--font-h
     </section>
   </aside>
 
-  <aside class="panel" id="panelVisit" hidden>
+  <aside class="panel" id="panelVisit" role="tabpanel" aria-labelledby="tabVisit" hidden>
     <section class="sec" id="routeCard" hidden>
       <div class="sign">
         <div class="hd"><div class="pic" id="rPic"></div><div><h3 id="rTitle"></h3><div class="meta" id="rMeta"></div></div></div>
@@ -244,6 +244,8 @@ ol.steps .ar{width:24px;flex:none;text-align:center;font:700 20px/1 var(--font-h
     <section class="sec">
       <label class="field"><span>Você está em (é o QR Code que você escaneou)</span><select id="startSel"></select></label>
       <p class="muted small" id="startNote">Você também pode tocar num corredor do mapa para marcar onde está.</p>
+      <p class="muted small" id="gpsNote"></p>
+      <button class="btn small" id="gpsBtn">Usar minha localização</button>
     </section>
     <section class="sec">
       <h3>Para onde você quer ir?</h3>
@@ -265,6 +267,7 @@ ol.steps .ar{width:24px;flex:none;text-align:center;font:700 20px/1 var(--font-h
 /* ================= constantes ================= */
 const W = 1000, H = 640, CELL = 3, GW = Math.floor(W / CELL), GH = Math.floor(H / CELL), N = GW * GH, CS = 2;
 const KEY = 'rota-interna:v1';
+const GPS_PAUSE_MS = 30000;
 const FONT = '"Barlow Semi Condensed","Barlow",system-ui,sans-serif';
 const EMOJI = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 const $ = (s, r = document) => r.querySelector(s);
@@ -290,7 +293,7 @@ const TOOLDEF = [
 ];
 
 /* ================= estado ================= */
-let S = { strokes: [], places: [], meters: 120, geoOrigin: { lat: -23.55052, lng: -46.633308 } };
+let S = { strokes: [], places: [], meters: 120 };
 let nextId = 1;
 let bgImg = null, bgOpacity = 0.45;
 let mode = 'edit', tool = 'corredor', brush = 30, selId = null, doorPending = null;
@@ -300,7 +303,7 @@ let T = {};
 const V = {
   startId: null, custom: null, destId: null, route: null, field: null, q: '', cat: 'all',
   sim: { active: false, s: 0, t0: 0, raf: 0 },
-  gps: { active: false, watchId: null, raw: null, snapped: null, lowSignal: false }
+  gps: { active: false, watchId: null, raw: null, snapped: null, lowSignal: false, anchor: null, lastKey: null, pauseUntil: 0 }
 };
 let health = { issues: [], byId: {}, hasCorr: false, entrances: 0, dests: 0 };
 
@@ -318,7 +321,7 @@ function readTheme() {
   const g = n => cs.getPropertyValue(n).trim() || '#888888';
   T = { stage: g('--stage'), paper: g('--paper'), corr: g('--corr'), grid: g('--grid'), ink: g('--ink'), ink2: g('--ink2'),
         accent: g('--accent'), route: g('--route'), you: g('--you'), bad: g('--bad'), onAccent: g('--on-accent') };
-  Object.keys(TYPES).forEach(t => { T[t] = g('--' + (t === 'entrada' ? 'entrada' : t)); });
+  Object.keys(TYPES).forEach(t => { T[t] = g('--' + t); });
   const th = document.documentElement.dataset.theme;
   T.dark = th ? th === 'dark' : !!(window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
 }
@@ -345,6 +348,9 @@ function drawStroke(st) {
 function rebuildCorr() { cctx.save(); cctx.setTransform(1, 0, 0, 1, 0, 0); cctx.clearRect(0, 0, corr.width, corr.height); cctx.restore(); S.strokes.forEach(drawStroke); }
 
 /* ================= grade de navegação ================= */
+const S2 = Math.SQRT2;
+const DIRS = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, S2], [1, -1, S2], [-1, 1, S2], [-1, -1, S2]];
+
 function rasterize() {
   const d = cctx.getImageData(0, 0, corr.width, corr.height).data, cw2 = corr.width;
   for (let gy = 0; gy < GH; gy++) {
@@ -395,9 +401,6 @@ function rasterize() {
   }
 }
 function ensureGrid() { if (gridDirty) { rasterize(); gridDirty = false; } }
-
-const S2 = Math.SQRT2;
-const DIRS = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, S2], [1, -1, S2], [-1, 1, S2], [-1, -1, S2]];
 
 function nearestWalk(x, y, maxPx) {
   const maxR = Math.ceil(maxPx / CELL);
@@ -518,10 +521,10 @@ function autoDoor(p) {
 }
 
 /* ================= histórico e persistência ================= */
-function snapshot() { return JSON.stringify({ strokes: S.strokes, places: S.places, meters: S.meters, nextId, geoOrigin: S.geoOrigin }); }
+function snapshot() { return JSON.stringify({ strokes: S.strokes, places: S.places, meters: S.meters, nextId }); }
 function restore(str) {
   const o = JSON.parse(str);
-  S.strokes = o.strokes; S.places = o.places; S.meters = o.meters; nextId = o.nextId; S.geoOrigin = o.geoOrigin || S.geoOrigin;
+  S.strokes = o.strokes; S.places = o.places; S.meters = o.meters; nextId = o.nextId;
   if (selId != null && !byId(selId)) selId = null;
   rebuildCorr(); onMapChanged();
 }
@@ -534,14 +537,38 @@ function commit() {
 function undo() { if (hidx > 0) { hidx--; restore(hist[hidx]); save(); } }
 function redo() { if (hidx < hist.length - 1) { hidx++; restore(hist[hidx]); save(); } }
 let saveT = 0;
-function save() { clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem(KEY, snapshot()); } catch (e) { } }, 400); }
+function saveNow() { clearTimeout(saveT); try { localStorage.setItem(KEY, snapshot()); } catch (e) { } }
+function save() { clearTimeout(saveT); saveT = setTimeout(saveNow, 400); }
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow(); });
+window.addEventListener('pagehide', saveNow);
+
+// descarta dados corrompidos ou de versões antigas em vez de quebrar a rota mais tarde
+function sanitize(o) {
+  const num = Number.isFinite;
+  const strokes = (Array.isArray(o.strokes) ? o.strokes : []).filter(st =>
+    st && (st.op === 'paint' || st.op === 'erase') && num(st.w) && Array.isArray(st.pts) && st.pts.length > 0 &&
+    st.pts.every(q => Array.isArray(q) && num(q[0]) && num(q[1])));
+  const places = (Array.isArray(o.places) ? o.places : []).filter(p => p && TYPES[p.type] && num(p.id) && num(p.x) && num(p.y));
+  places.forEach(p => {
+    p.kind = TYPES[p.type].kind;
+    p.name = typeof p.name === 'string' ? p.name : defaultLabel(p.type);
+    if (p.kind === 'area') {
+      p.w = num(p.w) && p.w > 0 ? p.w : 64; p.h = num(p.h) && p.h > 0 ? p.h : 44;
+      if (!p.door || !num(p.door.x) || !num(p.door.y)) p.door = { x: p.x + p.w / 2, y: p.y + p.h };
+    }
+  });
+  return { strokes, places };
+}
+function defaultLabel(type) { return TYPES[type].base; }
 function loadSaved() {
   try {
     const raw = localStorage.getItem(KEY); if (!raw) return false;
-    const o = JSON.parse(raw);
-    if (o && Array.isArray(o.places) && Array.isArray(o.strokes) && (o.places.length || o.strokes.length)) {
-      S.strokes = o.strokes; S.places = o.places; S.meters = o.meters || 120; nextId = o.nextId || (o.places.reduce((m, p) => Math.max(m, p.id), 0) + 1);
-      S.geoOrigin = o.geoOrigin || S.geoOrigin;
+    const o = JSON.parse(raw); if (!o || typeof o !== 'object') return false;
+    const c = sanitize(o);
+    if (c.places.length || c.strokes.length) {
+      S.strokes = c.strokes; S.places = c.places;
+      S.meters = clamp(+o.meters || 120, 10, 3000);
+      nextId = Math.max(+o.nextId || 1, c.places.reduce((m, p) => Math.max(m, p.id), 0) + 1);
       return true;
     }
   } catch (e) { }
@@ -765,7 +792,7 @@ function magnet(p) {
   }
   return best || p;
 }
-function hitPlace(w, includeEntradas) {
+function hitPlace(w) {
   const r = Math.max(14 / view.k, 12);
   for (let i = S.places.length - 1; i >= 0; i--) { const p = S.places[i]; if (p.kind === 'point' && Math.hypot(p.x - w.x, p.y - w.y) <= r) return p; }
   for (let i = S.places.length - 1; i >= 0; i--) { const p = S.places[i]; if (p.kind === 'area' && w.x >= p.x && w.x <= p.x + p.w && w.y >= p.y && w.y <= p.y + p.h) return p; }
@@ -985,88 +1012,96 @@ function setHint() {
   h.innerHTML = m[tool] || (t.kind === 'area' ? '<b>' + t.label + ':</b> arraste para desenhar. A porta é colocada sozinha no corredor mais próximo.' : '<b>' + t.label + ':</b> toque em cima de um corredor para colocar.');
 }
 
-/* ================= gps nativo & snap ================= */
+/* ================= GPS (opcional) e ajuste ao corredor ================= */
 let gpsToastShown = false;
-let geoOriginSet = false;
 
+// converte lat/lng em coordenadas do mapa, usando como âncora o ponto do mapa
+// onde o visitante estava (QR escolhido) quando recebeu a primeira leitura
+function geoToCanvas(lat, lng) {
+  const a = V.gps.anchor, pxPerM = W / S.meters;
+  const mx = (lng - a.lng) * 111320 * Math.cos(a.lat * Math.PI / 180);
+  const my = (lat - a.lat) * 110540;
+  return { x: a.x + mx * pxPerM, y: a.y - my * pxPerM };
+}
+// ao escolher a posição manualmente (QR ou toque no mapa) o GPS espera e reancora
+function manualStart() {
+  V.gps.pauseUntil = Date.now() + GPS_PAUSE_MS;
+  V.gps.anchor = null; V.gps.lastKey = null;
+}
+function gpsUI() {
+  const btn = $('#gpsBtn'), note = $('#gpsNote'); if (!btn || !note) return;
+  const supported = 'geolocation' in navigator;
+  btn.hidden = !supported;
+  btn.textContent = V.gps.active ? 'Parar de usar localização' : 'Usar minha localização';
+  note.textContent = !supported ? 'Este aparelho não oferece localização. Use o QR Code.' :
+    !V.gps.active ? 'Opcional: acompanha sua posição pelo GPS. Funciona melhor ao ar livre; em locais fechados, prefira o QR Code.' :
+    V.gps.lowSignal ? 'Sinal de GPS fraco. Escaneie um QR Code para ajustar sua posição.' :
+    Date.now() < V.gps.pauseUntil ? 'Posição marcada por você. O GPS retoma em instantes.' : 'Acompanhando sua posição pelo GPS.';
+}
 function startGPS() {
-  if (!('geolocation' in navigator)) return;
-  V.gps.active = true;
-  gpsToastShown = false;
-  geoOriginSet = false;
+  if (!('geolocation' in navigator) || V.gps.active) return;
+  if (!startPoint()) { toast('Escolha onde você está antes de usar o GPS.'); return; }
+  V.gps.active = true; V.gps.anchor = null; V.gps.lastKey = null; V.gps.pauseUntil = 0; V.gps.lowSignal = false;
+  gpsToastShown = false; gpsUI();
 
   V.gps.watchId = navigator.geolocation.watchPosition(
-    (pos) => {
-      if (!pos || !pos.coords) return;
+    pos => {
+      if (!V.gps.active || !pos || !pos.coords) return;
+      if (Date.now() < V.gps.pauseUntil) return;
       const { latitude, longitude, accuracy } = pos.coords;
 
-      // aceita sinais com raio de precisão até 60m
       if (accuracy > 60) {
-        V.gps.lowSignal = true;
-        if (!gpsToastShown) {
-          toast('sinal de gps fraco. podes usar os qr codes para ajustar a posição.');
-          gpsToastShown = true;
-        }
-        render();
+        V.gps.lowSignal = true; gpsUI();
+        if (!gpsToastShown) { toast('Sinal de GPS fraco. Você pode escanear um QR Code para ajustar a posição.'); gpsToastShown = true; }
         return;
       }
+      V.gps.lowSignal = false; gpsToastShown = false;
 
-      V.gps.lowSignal = false;
-      gpsToastShown = false;
-
-      // fixa o ponto inicial na primeira leitura recebida
-      if (!geoOriginSet) {
-        S.geoOrigin = { lat: latitude, lng: longitude };
-        geoOriginSet = true;
+      if (!V.gps.anchor) {
+        const sp = startPoint(); if (!sp) return;
+        V.gps.anchor = { lat: latitude, lng: longitude, x: sp.x, y: sp.y };
       }
-
-      const rawPt = geoToCanvas(latitude, longitude, S.geoOrigin);
+      const rawPt = geoToCanvas(latitude, longitude);
       V.gps.raw = { ...rawPt, accuracy };
 
       ensureGrid();
-      
-      // converte a margem de busca para cobrir o raio de erro real da leitura (accuracy)
       const maxSearchPx = Math.max(80, Math.round((accuracy * W) / S.meters));
-      const nearestCell = nearestWalk(rawPt.x, rawPt.y, maxSearchPx);
+      const cell = nearestWalk(rawPt.x, rawPt.y, maxSearchPx);
 
-      if (nearestCell >= 0) {
-        const snapX = (nearestCell % GW) * CELL + CELL / 2;
-        const snapY = ((nearestCell / GW) | 0) * CELL + CELL / 2;
-        V.gps.snapped = { x: snapX, y: snapY };
-        V.custom = { x: snapX, y: snapY, name: 'sua posição (gps)' };
+      let x, y, name, key;
+      if (cell >= 0) {
+        x = (cell % GW) * CELL + CELL / 2; y = ((cell / GW) | 0) * CELL + CELL / 2;
+        name = 'Sua posição (GPS)'; key = 'c' + cell;
+        V.gps.snapped = { x, y };
       } else {
-        // força a atualização da posição no canvas mesmo sem corredor por perto
-        V.custom = { x: clamp(rawPt.x, 0, W), y: clamp(rawPt.y, 0, H), name: 'sua posição (gps - aproximada)' };
+        x = clamp(rawPt.x, 0, W); y = clamp(rawPt.y, 0, H);
+        name = 'Sua posição (GPS, aproximada)'; key = 'p' + Math.round(x / CELL) + ',' + Math.round(y / CELL);
       }
-
+      gpsUI();
+      if (key === V.gps.lastKey) return; // não andou: evita recalcular todas as rotas
+      V.gps.lastKey = key;
+      V.custom = { x, y, name, gps: true };
       refreshVisitor();
     },
-    (err) => {
-      V.gps.lowSignal = true;
-      if (!gpsToastShown) {
-        toast('sinal de gps indisponível.');
-        gpsToastShown = true;
-      }
+    err => {
+      if (err && err.code === 1) { stopGPS(); refreshVisitor(); toast('Permissão de localização negada.'); return; }
+      V.gps.lowSignal = true; gpsUI();
+      if (!gpsToastShown) { toast('Sinal de GPS indisponível.'); gpsToastShown = true; }
     },
-    {
-      enableHighAccuracy: true,
-      maximumAge: 0,       // força obter sempre a posição em tempo real sem usar cache
-      timeout: 10000
-    }
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
   );
 }
-
 function stopGPS() {
-  if (V.gps.watchId !== null) {
-    navigator.geolocation.clearWatch(V.gps.watchId);
-    V.gps.watchId = null;
-  }
-  V.gps.active = false;
-  V.gps.raw = null;
-  V.gps.snapped = null;
+  if (V.gps.watchId !== null) { navigator.geolocation.clearWatch(V.gps.watchId); V.gps.watchId = null; }
+  V.gps.active = false; V.gps.raw = null; V.gps.snapped = null; V.gps.lowSignal = false;
+  V.gps.anchor = null; V.gps.lastKey = null; V.gps.pauseUntil = 0;
   gpsToastShown = false;
-  geoOriginSet = false;
+  if (V.custom && V.custom.gps) V.custom = null; // não deixa posição velha de GPS selecionada
+  gpsUI();
 }
+$('#gpsBtn').addEventListener('click', () => {
+  if (V.gps.active) { stopGPS(); refreshVisitor(); } else startGPS();
+});
 
 /* ================= visitante ================= */
 function startPoint() {
@@ -1086,8 +1121,7 @@ function enterVisitor() {
   ensureGrid(); computeHealth();
   if (!S.places.some(p => p.id === V.startId && p.type === 'entrada')) { const e = S.places.find(p => p.type === 'entrada'); V.startId = e ? e.id : null; }
   if (V.destId != null && !byId(V.destId)) { V.destId = null; V.route = null; }
-  refreshVisitor();
-  startGPS();
+  refreshVisitor(); gpsUI();
 }
 function refreshVisitor() {
   refreshField(); refreshStartSel();
@@ -1102,7 +1136,10 @@ function refreshStartSel() {
   sel.innerHTML = html; sel.value = V.custom ? 'custom' : (V.startId != null ? String(V.startId) : '');
   $('#startNote').hidden = false;
 }
-$('#startSel').addEventListener('change', e => { const v = e.target.value; if (v === 'custom') return; V.custom = null; V.startId = v ? +v : null; refreshVisitor(); });
+$('#startSel').addEventListener('change', e => {
+  const v = e.target.value; if (v === 'custom') return;
+  V.custom = null; V.startId = v ? +v : null; manualStart(); gpsUI(); refreshVisitor();
+});
 
 function makeRoute(dest) {
   const f = V.field, sp = startPoint(); if (!f || !sp) return null;
@@ -1210,12 +1247,12 @@ function renderResults() {
 $('#results').addEventListener('click', e => { const b = e.target.closest('.res'); if (b) setDest(+b.dataset.id); });
 function visitorTap(w) {
   const h = hitPlace(w);
-  if (h && h.type === 'entrada') { V.custom = null; V.startId = h.id; refreshVisitor(); toast('Você está em: ' + h.name); return; }
+  if (h && h.type === 'entrada') { V.custom = null; V.startId = h.id; manualStart(); gpsUI(); refreshVisitor(); toast('Você está em: ' + h.name); return; }
   if (h) { setDest(h.id); return; }
   ensureGrid(); const c = nearestWalk(w.x, w.y, 24);
   if (c < 0) { toast('Toque num corredor para marcar onde você está.'); return; }
   V.custom = { x: (c % GW) * CELL + CELL / 2, y: ((c / GW) | 0) * CELL + CELL / 2, name: 'Posição marcada no mapa' };
-  stopSim(true); refreshVisitor();
+  manualStart(); gpsUI(); stopSim(true); refreshVisitor();
 }
 function startSim() {
   const R = V.route; if (!R) return;
@@ -1240,6 +1277,7 @@ function setMode(m) {
   $('#app').className = 'mode-' + (m === 'edit' ? 'edit' : 'visit');
   $('#tools').hidden = m !== 'edit'; $('#panelEdit').hidden = m !== 'edit'; $('#panelVisit').hidden = m !== 'visit';
   $('#tabEdit').setAttribute('aria-selected', String(m === 'edit')); $('#tabVisit').setAttribute('aria-selected', String(m === 'visit'));
+  $('#tabEdit').tabIndex = m === 'edit' ? 0 : -1; $('#tabVisit').tabIndex = m === 'visit' ? 0 : -1;
   if (m === 'visit') enterVisitor(); else { stopGPS(); stopSim(true); computeHealth(); renderHealth(); }
   cv.style.cursor = m === 'edit' ? cursorFor() : 'grab';
   setHint(); userMoved = false; resize();
@@ -1247,6 +1285,23 @@ function setMode(m) {
 }
 $('#tabEdit').addEventListener('click', () => setMode('edit'));
 $('#tabVisit').addEventListener('click', () => setMode('visit'));
+$('.tabs').addEventListener('keydown', e => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+  e.preventDefault();
+  const m = (e.key === 'ArrowRight' || e.key === 'End') ? 'visit' : 'edit';
+  setMode(m); $(m === 'edit' ? '#tabEdit' : '#tabVisit').focus();
+});
+
+/* modal com foco preso e devolvido */
+let modalOpener = null;
+function openModal() { modalOpener = document.activeElement; $('#modal').hidden = false; $('#mGo').focus(); }
+function closeModal() { $('#modal').hidden = true; if (modalOpener && modalOpener.focus) { try { modalOpener.focus(); } catch (e) { } } modalOpener = null; }
+$('#modal').addEventListener('keydown', e => {
+  if (e.key !== 'Tab') return;
+  const f = [$('#mGo'), $('#mClose')], i = f.indexOf(document.activeElement);
+  if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+  else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); }
+});
 
 const timer = { running: false, t0: 0, iv: 0 };
 const fmtClock = ms => { const s = Math.floor(ms / 1000); return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
@@ -1255,7 +1310,7 @@ $('#timerBtn').addEventListener('click', () => {
   if (!timer.running) {
     if (mode !== 'edit') setMode('edit');
     blankMap(); timer.running = true; timer.t0 = Date.now(); $('#timerBtn').classList.add('run');
-    tickTimer(); timer.iv = setInterval(tickTimer, 1000); toast('Cronometram montagem iniciada.');
+    tickTimer(); timer.iv = setInterval(tickTimer, 1000); toast('Cronometragem iniciada.');
   } else {
     const ms = Date.now() - timer.t0; clearInterval(timer.iv); timer.running = false;
     $('#timerBtn').classList.remove('run'); $('#timerTxt').textContent = 'Cronometrar montagem';
@@ -1264,11 +1319,11 @@ $('#timerBtn').addEventListener('click', () => {
     $('#mTitle').textContent = 'Mapa montado';
     $('#mBody').innerHTML = '<div class="big tnum">' + fmtClock(ms) + '</div><p class="muted" style="margin:6px 0 12px">' + (mins <= 20 ? 'Dentro dos 20 minutos da hipótese.' : 'Acima dos 20 minutos da hipótese.') + '</p>' +
       '<p style="margin:0">' + health.dests + ' destinos e ' + health.entrances + ' pontos de entrada.<br>' + (health.issues.length ? '<b>' + health.issues.length + ' problema(s) de conexão</b> ainda abertos.' : 'Nenhum problema de conexão.') + '</p>';
-    $('#modal').hidden = false; $('#mGo').focus();
+    openModal();
   }
 });
-$('#mClose').addEventListener('click', () => { $('#modal').hidden = true; });
-$('#mGo').addEventListener('click', () => { $('#modal').hidden = true; setMode('visit'); });
+$('#mClose').addEventListener('click', closeModal);
+$('#mGo').addEventListener('click', () => { closeModal(); setMode('visit'); });
 
 $('#undo').addEventListener('click', undo);
 $('#redo').addEventListener('click', redo);
@@ -1295,9 +1350,10 @@ window.addEventListener('keydown', e => {
   const tag = (e.target.tagName || '').toLowerCase(), typing = tag === 'input' || tag === 'textarea' || tag === 'select';
   if ((e.ctrlKey || e.metaKey) && !typing && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if ((e.ctrlKey || e.metaKey) && !typing && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
+  if (e.key === 'Escape' && !$('#modal').hidden) { closeModal(); return; }
   if (typing) { if (e.key === 'Enter' && e.target.id === 'selName') e.target.blur(); return; }
   if (e.key === ' ' && (e.target === document.body || e.target === cv)) { spaceDown = true; e.preventDefault(); return; }
-  if (e.key === 'Escape') { if (!$('#modal').hidden) { $('#modal').hidden = true; return; } doorPending = null; drag = null; if (mode === 'edit') select(null); setHint(); render(); return; }
+  if (e.key === 'Escape') { doorPending = null; drag = null; if (mode === 'edit') select(null); setHint(); render(); return; }
   if ((e.key === 'Delete' || e.key === 'Backspace') && mode === 'edit' && selId != null) { e.preventDefault(); deleteSel(); }
 });
 window.addEventListener('keyup', e => { if (e.key === ' ') spaceDown = false; });
@@ -1315,7 +1371,7 @@ new MutationObserver(onThemeChange).observe(document.documentElement, { attribut
 if (window.ResizeObserver) new ResizeObserver(resize).observe(stage); else window.addEventListener('resize', resize);
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
 resize();
-computeHealth(); renderHealth(); syncUndo(); syncSel();
+computeHealth(); renderHealth(); syncUndo(); syncSel(); gpsUI();
 })();
 </script>
 </body>
